@@ -102,7 +102,7 @@ def weather_view(request: HttpRequest):
             current_weather = get_current_weather(city)
 
             # Load historical data
-            csv_path = os.path.join('../../weather.csv')
+            csv_path = os.path.join('../weather.csv')
             historical_data = read_historical_data(csv_path)
 
             # Prepare and train the rain prediction model
