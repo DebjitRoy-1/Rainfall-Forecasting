@@ -15,31 +15,32 @@ import logging
 API_KEY = 'db5885c16b69e40376c7bb6b887a18da'
 BASE_URL = 'https://api.openweathermap.org/data/2.5/'
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging for better accuracy tracking
+logging.basicConfig(level=logging.DEBUG)
 
 def get_current_weather(city):
     url = f"{BASE_URL}weather?q={city}&appid={API_KEY}&units=metric"
     response = requests.get(url)
     data = response.json()
+
     if response.status_code != 200 or 'main' not in data:
         raise ValueError(f"Error fetching weather data for {city}")
-    
-    # Ensure we capture precise values
+
+    # Ensure high precision with rounded values
     return {
         'city': data['name'],
-        'current_temp': round(data['main']['temp'],),
-        'feels_like': round(data['main']['feels_like'], 1),
-        'temp_min': round(data['main']['temp_min'], 1),
-        'temp_max': round(data['main']['temp_max'], 1),
-        'humidity': round(data['main']['humidity']),
+        'current_temp': round(data['main']['temp'], 1),
+        'feels_like': round(data['main']['feels_like'], 2),
+        'temp_min': round(data['main']['temp_min'], 2),
+        'temp_max': round(data['main']['temp_max'], 2),
+        'humidity': round(data['main']['humidity'], 1),
         'description': data['weather'][0]['description'],
         'country': data['sys']['country'],
         'wind_gust_dir': data['wind']['deg'],
-        'pressure': round(data['main']['pressure'], 2),  # Pressure in hPa (with 2 decimal precision)
-        'Wind_Gust_Speed': round(data['wind']['speed'], 1),  # Wind speed (rounded to 1 decimal)
+        'pressure': round(data['main']['pressure'], 2),  # Pressure with more precision
+        'Wind_Gust_Speed': round(data['wind']['speed'], 2),  # Wind speed with 2 decimal places
         'clouds': data['clouds']['all'],
-        'Visibility': data['visibility'],  # Visibility (in meters)
+        'Visibility': data['visibility'],  # Visibility in meters
         'timezone': data['timezone'],  # Timezone offset in seconds
     }
 
@@ -47,8 +48,13 @@ def read_historical_data(filename):
     df = pd.read_csv(filename)
     df = df.dropna()
     df = df.drop_duplicates()
+
     if df.empty:
         raise ValueError("The dataset is empty after cleaning.")
+
+    # Check for significant outliers or incorrect data in historical dataset
+    logging.debug(f"Data shape after cleaning: {df.shape}")
+    
     return df
 
 def prepare_data(data):
@@ -59,17 +65,21 @@ def prepare_data(data):
     except ValueError as e:
         logging.error(f"Label encoding failed: {e}")
         raise ValueError("Label encoding failed.")
-    
+
     return data[['MinTemp', 'MaxTemp', 'WindGustDir', 'WindGustSpeed', 'Humidity', 'Pressure', 'Temp']], data['RainTomorrow'], le
 
 def train_rain_model(X, y):
     if X.size == 0 or y.size == 0:
         raise ValueError("Input data is empty for training the model.")
+    
     x_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model = RandomForestClassifier(n_estimators=200, random_state=42)  # Increased estimators for stability
     model.fit(x_train, y_train)
     y_pred = model.predict(X_test)
-    logging.info("Mean Squared Error for Rain Model: %f", mean_squared_error(y_test, y_pred))
+    
+    mse = mean_squared_error(y_test, y_pred)
+    logging.debug("Mean Squared Error for Rain Model: %.2f", mse)
+    
     return model
 
 def prepare_regression_data(data, feature):
@@ -77,15 +87,19 @@ def prepare_regression_data(data, feature):
     for i in range(len(data) - 1):
         X.append(data[feature].iloc[i])
         y.append(data[feature].iloc[i + 1])
+    
     X = np.array(X).reshape(-1, 1)
     y = np.array(y)
+    
     return X, y
 
 def train_regression_model(X, y):
     if X.size == 0 or y.size == 0:
         raise ValueError("Input data for regression model is empty.")
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    
+    model = RandomForestRegressor(n_estimators=200, random_state=42)  # More estimators for better accuracy
     model.fit(X, y)
+    
     return model
 
 def predict_future(model, current_value):
@@ -93,6 +107,7 @@ def predict_future(model, current_value):
     for i in range(5):
         next_value = model.predict(np.array([[predictions[-1]]]))
         predictions.append(next_value[0])
+    
     return predictions[1:]
 
 def weather_view(request: HttpRequest):
@@ -102,7 +117,7 @@ def weather_view(request: HttpRequest):
             current_weather = get_current_weather(city)
 
             # Load historical data
-            csv_path = os.path.join('../weather.csv')
+            csv_path = os.path.join('../weather.csv')  # Ensure the path to the CSV is correct
             historical_data = read_historical_data(csv_path)
 
             # Prepare and train the rain prediction model
@@ -127,7 +142,6 @@ def weather_view(request: HttpRequest):
                 try:
                     compass_direction_encoded = le.transform([compass_direction])[0]
                 except ValueError:
-                    # If the label is unseen, set a default value (-1)
                     compass_direction_encoded = -1
 
             # Process current weather data
@@ -184,11 +198,11 @@ def weather_view(request: HttpRequest):
                 'description': current_weather['description'],
                 'city': current_weather['city'],
                 'country': current_weather['country'],
-                'time': local_time.strftime("%I:%M %p"),  # 12-hour format for current time without seconds
+                'time': local_time.strftime("%I:%M %p"),
                 'date': local_time.strftime("%B %d, %Y"),
-                'wind': f"{current_weather['Wind_Gust_Speed']} m/s",  # Wind speed with precision
-                'pressure': f"{current_weather['pressure']} hPa",  # Pressure in hPa with precision
-                'visibility': f"{current_weather['Visibility']} meters",  # Visibility in meters
+                'wind': f"{current_weather['Wind_Gust_Speed']} m/s",
+                'pressure': f"{current_weather['pressure']} hPa",
+                'visibility': f"{current_weather['Visibility']} meters",
                 'time1': time1,
                 'time2': time2,
                 'time3': time3,
@@ -206,9 +220,12 @@ def weather_view(request: HttpRequest):
                 'hum5': f"{round(hum5, 1)}",
             }
 
+
             return render(request, 'weather.html', context)
     except Exception as e:
         logging.error(f"Error in weather view: {str(e)}")
         return HttpResponse(f"An error occurred: {str(e)}", status=500)
 
     return render(request, 'weather.html')
+
+
