@@ -28,7 +28,7 @@ def get_current_weather(city):
     # Ensure we capture precise values
     return {
         'city': data['name'],
-        'current_temp': round(data['main']['temp'], 1),
+        'current_temp': round(data['main']['temp'],),
         'feels_like': round(data['main']['feels_like'], 1),
         'temp_min': round(data['main']['temp_min'], 1),
         'temp_max': round(data['main']['temp_max'], 1),
